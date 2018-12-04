@@ -185,8 +185,53 @@ ga_search(const Cities& cities,
     const auto ordering = deme.get_best()->get_ordering();
     if (is_improved(cities, ordering, best_dist, i * pop_size)) {
       best_ordering = ordering;
+
     }
   }
+  return best_ordering;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// threaded_randomized_search is a multi-threaded wrapper of exhaustive_search
+Cities::permutation_t
+threaded_ga_search(const Cities& cities,
+                           unsigned iters,
+			   unsigned pop_size,
+			   double mutation_rate,
+                           unsigned nthread = 1)
+{
+  auto best_ordering = Cities::permutation_t(cities.size());
+  auto best_dist = 1e100 + nthread; 
+	  for (auto i: best_ordering)
+	  {
+		  std::cout<<i<<"\t";
+	  }
+	  std::cout<<std::endl;
+  auto best_mutex = std::mutex();
+
+  auto run_one_thread = [&]() {
+    auto my_best = ga_search(cities, iters/nthread, pop_size, mutation_rate);
+    if (cities.total_path_distance(my_best) < cities.total_path_distance(best_ordering)) 
+    {
+      auto guard = std::lock_guard(best_mutex);
+      // Repeat check, maybe something changed:
+      if (cities.total_path_distance(my_best) < best_dist) 
+      {
+	  best_ordering = my_best;
+	  best_dist = cities.total_path_distance(my_best);
+      }
+    }
+  };
+
+  std::vector<std::thread> threads;
+  for (unsigned i = 0; i < nthread; ++i) {
+    threads.push_back(std::thread(run_one_thread));
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
   return best_ordering;
 }
 
@@ -212,8 +257,15 @@ int main(int argc, char** argv)
 //  const auto best_ordering = randomized_search(cities, NUM_ITER);
 //  const auto best_ordering = threaded_randomized_search(cities, NUM_ITER, nthread);
 //  const auto best_ordering = granular_randomized_search(cities, NUM_ITER, nthread, granularity);
-  const auto best_ordering = ga_search(cities, NUM_ITER, pop_size, mut_rate, nthread);
+//  const auto best_ordering = ga_search(cities, NUM_ITER, pop_size, mut_rate, nthread);
 
+  const auto best_ordering = threaded_ga_search(cities, NUM_ITER, pop_size, mut_rate, nthread);
+
+  for (auto i: best_ordering)
+  {
+	  std::cout<<i<<"\t";
+  }
+  std::cout<<std::endl;
   auto out = std::ofstream("shortest.tsv");
   if (!out.is_open()) {
     std::cerr << "Can't open output file to record shortest path!\n";
